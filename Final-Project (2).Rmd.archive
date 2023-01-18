@@ -1,0 +1,200 @@
+---
+title: "Final_Project_Adult_Dataset"
+author: "Tong Wu"
+date: "2022-12-08"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Final project - Adult Census Income Level Prediction Reproduce and Research of Different Approach
+
+## Import adult dataset and data cleaning
+```{r}
+#Read the adult data set
+adult <- read.csv(url("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"), header = FALSE,stringsAsFactors=T)
+
+# Apply column names
+colname<-c("age", "type_employer", "fnlwgt", "education", 
+                "education_num","marital", "occupation", "relationship", "race","sex",
+                "capital_gain", "capital_loss", "hr_per_week","country", "income")
+colnames(adult)<-colname
+
+# Continue Variable to char
+varcontinue <- c("age","fnlwgt","education_num","capital_gain","capital_loss","hr_per_week")
+adult <- cbind(lapply(adult[,varcontinue],function(x) as.numeric(as.character(x))),adult[,setdiff(colname,varcontinue)])
+head(adult)
+```
+```{r}
+# Show variable type
+str(adult)
+```
+```{r}
+# Check the missing value
+# table(adult$type_employer)
+
+# Seems like the missing value is replaced by "?"
+# Change the missing value to NA, which is readable for R
+adult$type_employer[adult$type_employer==" ?"]<-NA
+adult$occupation[adult$occupation==" ?"]<-NA
+adult$country[adult$country==" ?"]<-NA
+
+# Delete the missing value
+adult_cl <- na.omit(adult)
+print(nrow(adult))
+print(nrow(adult_cl))
+str(adult_cl)
+# More than 2k data containing missing value has been deleted.
+# Data clean finished
+```
+
+## Reproduce paper result
+### 1 - Using  decision  tree  classifier  to  predict  income levels [1]
+Bekena using random forest to predit the income level of adult, and analysis the income level of an individual with certain attributes, and the key features determining incoming level. This section is trying to reproduce the result comes from Bekena by using the same approach.
+
+Copy from Bekena's paper about the method section:
+"A supervised machine learning approach of Random Forest Classifier is used for the study. Random forest classifier is chosen due to two reasons. First since the outcome (target) variable is binary variable (income level >50K or not), using classification algorithms is better than regression algorithms. This is because the target having only values of 0 and 1, regression algorithms will perform less due to less variation in the target variable. 
+Secondly, random forest classifier is found to have better accuracy score compared to gaussian naive baise classifier. Random forest and decisionTree Classifier gave accuracy score of 85% while GaussianNB gave accuracy of 78%. Random forest is preferred to decision tree since using results from many decision trees will avoid the over fitting problem associated with using a decision tree classifier. The results from the model show that both random forest and decision tree gave similar results. This is shown by the fact that the top 7 features in importance are the same in the two models"
+
+#### Data exploration
+```{r}
+# Different attributes correlation with income
+# Bekena Paper Page 8
+# install.packages("PerformanceAnalytics")
+library("PerformanceAnalytics")
+
+# Choose age, education_num, capital_gain, hr_per_week, income_level 
+adult_cor <- adult_cl[, c("age", "education_num", "hr_per_week")]
+# str(adult_cor)
+adult_income <- adult_cl[, c("income")]
+# str(adult_income)
+adult_cor <- cbind(adult_cor, as.numeric(adult_income))
+# str(adult_cor)
+
+# Correlation graph
+chart.Correlation(adult_cor, histogram=TRUE, pch=19)
+```
+
+The correlation graph is same as Bekena's, where the education has the highest corrlation +0.34 with income. Capital gain, age and hours worked per week are also positively correlated with income with around +0.20.
+
+```{r}
+# Plots of individuals with low and high income by different variables
+# Bekena Paper Page 9
+
+# Uncomment below if the rlang is required for higher version
+## remove.packages('rlang')
+## install.packages("rlang")
+
+# Uncomment below if the Rmisc package is not found
+## install.packages("Rmisc")
+## install.packages("multiplot")
+library(ggplot2)      
+library(Rmisc)
+library(plyr)
+plot_indrel <- function(data, ylab, fillc, pos, xname, yname) {
+  ggplot(data, aes(ylab, fill = fillc)) + 
+    geom_bar(position = pos) +
+    labs(x = xname, y = yname) +
+    coord_flip() +
+    theme_minimal()
+}
+# Work class
+p1 <- plot_indrel(data = adult_cl, ylab = adult_cl$type_employer, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'work class', yname = 'per count')
+# Marital status
+p2 <- plot_indrel(data = adult_cl, ylab = adult_cl$marital, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'marital status', yname = 'per count')
+# Occupation
+p3 <- plot_indrel(data = adult_cl, ylab = adult_cl$occupation, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'marital status', yname = 'per count')
+# Relationship
+p4 <- plot_indrel(data = adult_cl, ylab = adult_cl$relationship, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'marital status', yname = 'per count')
+# Race
+p5 <- plot_indrel(data = adult_cl, ylab = adult_cl$race, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'marital status', yname = 'per count')
+# Sex
+p6 <- plot_indrel(data = adult_cl, ylab = adult_cl$sex, fillc = adult_cl$income, 
+              pos = 'fill',  xname = 'marital status', yname = 'per count')
+# plot(p1)
+# plot(p2)
+# plot(p3)
+# plot(p4)
+# plot(p5)
+# plot(p6)
+multiplot(p1, p2, p3, p4, p5, p6, cols=2)
+```
+#### Random Forest Classifier
+```{r}
+# Build test set and train set
+income <- adult_income
+## Discard fnlwgt and income, cbind numeric income
+# adult_rfc <- adult_cl[, c(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)]
+train_rfc=sample(1:nrow(adult_cl),0.7*nrow(adult_cl))
+adult_train_rfc <- adult_cl[train_rfc,]
+adult_test_rfc <- adult_cl[-train_rfc,]
+```
+
+```{r}
+# Uncomment below if package randomForest and caret is not found
+## install.packages("randomForest")
+## install.packages("caret")
+library(randomForest)
+library(caret)
+
+# Start training
+## Set seed avoiding randomise
+set.seed(6690)
+rfc_model <- randomForest(income~.-fnlwgt-relationship-marital-occupation, data = adult_train_rfc)
+rfc_pred <- predict(rfc_model, adult_train_rfc, type = 'response')
+varImpPlot(rfc_model)
+```
+```{r}
+library(dplyr)
+# Importance score
+importance_score <- varImp(rfc_model, conditional=TRUE)
+print(importance_score)
+# sum(importance_score$Overall)
+proportions <- importance_score$Overall/sum(importance_score$Overall)
+percentages <- proportions*100
+cbind(importance_score, percentages)
+```
+Get the quite same result as Bekena's. 
+```{r}
+# With marital status
+
+set.seed(6690)
+rfc_model2 <- randomForest(income~.-fnlwgt-relationship-occupation, data = adult_train_rfc)
+rfc_pred2 <- predict(rfc_model2, adult_train_rfc, type = 'response')
+# varImpPlot(rfc_model2)
+# Importance score
+importance_score2 <- varImp(rfc_model2, conditional=TRUE)
+print(importance_score2)
+# sum(importance_score$Overall)
+proportions2 <- importance_score2$Overall/sum(importance_score2$Overall)
+percentages2 <- proportions2*100
+cbind(importance_score2, percentages2)
+```
+The reason that the attribute "marital" is higher than expected is that, in Bekena's paper, marital status "married" is listed separated, which cause the different value with my result.
+
+```{r}
+# Validate through test data set
+rfc_pred_test <- predict(rfc_model, adult_test_rfc, type = 'response')
+# 
+confusionMatrix(rfc_pred_test, adult_test_rfc$income)
+# rfc_pred_test
+# adult_test_rfc
+```
+
+
+
+
+
+
+
+
+
+
+## References
+[1] Sisay  Menji  Bekena:“Using  decision  tree  classifier  to  predict  income levels”, Munich Personal RePEc Archive 30th July, 2017
